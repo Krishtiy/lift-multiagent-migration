@@ -235,6 +235,17 @@ class GoldenComparator:
 
     @classmethod
     def compare(cls, golden: GoldenExecution, actual: GoldenExecution) -> ComparisonResult:
+        # 0. Check for harness execution failures
+        if golden.exception_type == "ExecutionFailure" or actual.exception_type == "ExecutionFailure":
+            return ComparisonResult(
+                passed=False,
+                test_id=golden.test_id,
+                function_name=golden.function_name,
+                diff_reason=f"Execution error: golden={golden.exception_msg}, actual={actual.exception_msg}",
+                expected=golden.exception_type,
+                actual=actual.exception_type,
+            )
+
         # 1. Compare exceptions
         if golden.exception_type != actual.exception_type:
             return ComparisonResult(
@@ -245,6 +256,7 @@ class GoldenComparator:
                 expected=golden.exception_type,
                 actual=actual.exception_type,
             )
+
 
         # 2. Compare return values (normalize int/float when exact, or float tolerances)
         if not cls._values_equal(golden.return_value, actual.return_value):

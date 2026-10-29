@@ -184,6 +184,9 @@ class SubprocessSandboxRunner(BaseSandboxRunner):
                 if config.get("bind") == working_dir or working_dir == "/workspace":
                     cwd = host_path
                     break
+        if not cwd and working_dir and working_dir != "/workspace":
+            cwd = working_dir
+
 
         timed_out = False
         oom_killed = False
