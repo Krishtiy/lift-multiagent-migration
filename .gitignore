@@ -47,3 +47,5 @@ htmlcov/
 data/
 *.log
 scratch/
+.cache/
+
