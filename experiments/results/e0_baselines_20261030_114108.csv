@@ -1,0 +1,4 @@
+condition_name,run_index,total_chunks,first_try_passed,retried_passed,needs_review,failed,first_try_pct,retried_pct,review_pct,dev_suite_passed,heldout_suite_passed,gotchas_resolved,total_gotchas,tokens_used,cost_usd,duration_seconds
+baseline_a_rules_only,1,5,5,0,0,0,100.0,100.0,0.0,False,False,8,12,0,0.0,3.88
+baseline_b_oneshot_llm,1,5,5,0,0,0,100.0,100.0,0.0,False,False,9,12,1000,0.0003,3.87
+full_lift_pipeline,1,5,2,0,3,0,40.0,40.0,60.0,False,False,5,12,1600,0.0004,11.12

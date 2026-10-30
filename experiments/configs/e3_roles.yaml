@@ -1,0 +1,21 @@
+name: "E3 - Role Separation (Multi-Agent Justification)"
+description: "Evaluates monolithic single-agent vs separated roles (Planner, Migrator, Verifier)"
+runs: 3
+conditions:
+  - name: "monolithic_single_agent"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    role_mode: "monolithic"
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-flash"
+    enable_escalation: false
+
+  - name: "separated_multi_agent_roles"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    role_mode: "separated"
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: true

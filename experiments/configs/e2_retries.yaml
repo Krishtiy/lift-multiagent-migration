@@ -1,0 +1,27 @@
+name: "E2 - Retry Depth Impact"
+description: "Evaluates migration success and regression rates across 0, 1, and 3 retries"
+runs: 3
+conditions:
+  - name: "retries_0"
+    apply_rules: true
+    max_attempts: 1
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-flash"
+    enable_escalation: false
+
+  - name: "retries_1"
+    apply_rules: true
+    max_attempts: 2
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-flash"
+    enable_escalation: false
+
+  - name: "retries_3"
+    apply_rules: true
+    max_attempts: 4
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: true

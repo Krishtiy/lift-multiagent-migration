@@ -62,12 +62,22 @@ class MigrationOrchestrator:
         llm_client: Optional[UnifiedLLMClient] = None,
         default_model: str = "mock-model",
         escalation_model: str = "mock-model-strong",
+        max_attempts: int = 3,
+        apply_rules_pass: bool = True,
+        skip_verifier: bool = False,
+        role_mode: str = "separated",
+        enable_escalation: bool = True,
     ):
         self.engine = engine or create_db_engine("sqlite:///:memory:")
         init_db(self.engine)
         self.llm_client = llm_client or UnifiedLLMClient()
         self.default_model = default_model
         self.escalation_model = escalation_model
+        self.max_attempts = max_attempts
+        self.apply_rules_pass = apply_rules_pass
+        self.skip_verifier = skip_verifier
+        self.role_mode = role_mode
+        self.enable_escalation = enable_escalation
 
         self.migrator = MigratorAgent(llm_client=self.llm_client)
         self.sandbox_runner = create_sandbox_runner()
@@ -194,13 +204,49 @@ class MigrationOrchestrator:
             test_cases=test_cases,
         )
 
-        # Step 2: Apply deterministic rules pass
-        rules_res = Py2ToPy3RulesPass.apply_rules(original_source)
-        candidate_code = rules_res.code
+        # Step 2: Apply deterministic rules pass if enabled
+        if self.apply_rules_pass:
+            rules_res = Py2ToPy3RulesPass.apply_rules(original_source)
+            candidate_code = rules_res.code
+        else:
+            candidate_code = original_source
 
         with get_db(self.engine) as session:
             transition_chunk(session, chunk_id, ChunkStatus.TESTS_READY, ChunkStatus.RULES_APPLIED)
             transition_chunk(session, chunk_id, ChunkStatus.RULES_APPLIED, ChunkStatus.MIGRATING)
+
+        # Baseline A: Rules-only mode (no LLM attempts)
+        if self.max_attempts <= 0:
+            target_file.write_text(candidate_code, encoding="utf-8")
+            with get_db(self.engine) as session:
+                transition_chunk(session, chunk_id, ChunkStatus.MIGRATING, ChunkStatus.VERIFYING)
+                transition_chunk(session, chunk_id, ChunkStatus.VERIFYING, ChunkStatus.PASSED)
+            return {
+                "chunk_id": chunk_id,
+                "file_path": chunk.file_path,
+                "status": ChunkStatus.PASSED.value,
+                "attempts": 0,
+            }
+
+        # Baseline B: 1-shot LLM rewrite without verifier feedback loop
+        if self.skip_verifier:
+            attempt_res = self.migrator.migrate_chunk(
+                context_pack=chunk,
+                rules_pass_code=candidate_code,
+                failing_report=None,
+                previous_code=candidate_code,
+                model=self.default_model,
+            )
+            target_file.write_text(attempt_res.candidate_code, encoding="utf-8")
+            with get_db(self.engine) as session:
+                transition_chunk(session, chunk_id, ChunkStatus.MIGRATING, ChunkStatus.VERIFYING)
+                transition_chunk(session, chunk_id, ChunkStatus.VERIFYING, ChunkStatus.PASSED)
+            return {
+                "chunk_id": chunk_id,
+                "file_path": chunk.file_path,
+                "status": ChunkStatus.PASSED.value,
+                "attempts": 1,
+            }
 
         last_report: Optional[str] = None
         last_failure_key: Optional[str] = None
@@ -208,11 +254,15 @@ class MigrationOrchestrator:
         review_reason: Optional[ReviewReason] = None
         total_attempts = 0
 
-        # Step 3: Migration attempt loop (Max 3 attempts)
-        for attempt_idx in range(1, MAX_ATTEMPTS + 1):
+        # Step 3: Migration attempt loop
+        for attempt_idx in range(1, self.max_attempts + 1):
             total_attempts = attempt_idx
-            # Escalate to stronger model on final retry
-            model_to_use = self.escalation_model if attempt_idx == MAX_ATTEMPTS else self.default_model
+            # Escalate to stronger model on final retry if enabled
+            model_to_use = (
+                self.escalation_model
+                if (self.enable_escalation and attempt_idx == self.max_attempts and self.max_attempts > 1)
+                else self.default_model
+            )
 
             # Check budget
             if self.llm_client.total_tokens_used >= self.llm_client.token_budget:
@@ -294,7 +344,7 @@ class MigrationOrchestrator:
             last_report = verif_res.trimmed_report
 
             # Prepare retry if attempts remain
-            if attempt_idx < MAX_ATTEMPTS:
+            if attempt_idx < self.max_attempts:
                 with get_db(self.engine) as session:
                     transition_chunk(session, chunk_id, ChunkStatus.VERIFYING, ChunkStatus.RETRY)
                     transition_chunk(session, chunk_id, ChunkStatus.RETRY, ChunkStatus.MIGRATING)

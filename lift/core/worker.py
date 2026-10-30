@@ -70,6 +70,7 @@ class ChunkLeaseManager:
             session.flush()
 
             if res.rowcount > 0:
+                session.commit()
                 session.refresh(candidate)
                 return candidate
 
@@ -96,7 +97,7 @@ class ChunkLeaseManager:
             .values(lease_expires_at=new_expiry, updated_at=now)
         )
         res = session.execute(stmt)
-        session.flush()
+        session.commit()
         return res.rowcount > 0
 
     @classmethod
@@ -136,7 +137,7 @@ class ChunkLeaseManager:
             )
         )
         res = session.execute(stmt)
-        session.flush()
+        session.commit()
         return res.rowcount > 0
 
 

@@ -1,0 +1,27 @@
+name: "E4 - Model Tiering and Escalation"
+description: "Evaluates cost and accuracy tradeoffs of Cheap model vs Strong model vs Escalation"
+runs: 3
+conditions:
+  - name: "cheap_model_only"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-flash"
+    enable_escalation: false
+
+  - name: "strong_model_only"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    default_model: "gemini-2.5-pro"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: false
+
+  - name: "dynamic_escalation"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: true

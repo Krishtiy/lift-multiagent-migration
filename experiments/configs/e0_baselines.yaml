@@ -1,0 +1,27 @@
+name: "E0 - Baselines"
+description: "Compares rules-only modernization, 1-shot LLM rewrite without verification, and full Lift pipeline"
+runs: 3
+conditions:
+  - name: "baseline_a_rules_only"
+    apply_rules: true
+    max_attempts: 0
+    skip_verifier: true
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-flash"
+    enable_escalation: false
+
+  - name: "baseline_b_oneshot_llm"
+    apply_rules: false
+    max_attempts: 1
+    skip_verifier: true
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-flash"
+    enable_escalation: false
+
+  - name: "full_lift_pipeline"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: true

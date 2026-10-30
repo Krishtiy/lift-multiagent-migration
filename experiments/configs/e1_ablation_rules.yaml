@@ -1,0 +1,19 @@
+name: "E1 - Rules Pass Ablation"
+description: "Ablation study evaluating LLM-only migration vs Rules Pass + LLM migration"
+runs: 3
+conditions:
+  - name: "llm_only"
+    apply_rules: false
+    max_attempts: 3
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: true
+
+  - name: "rules_plus_llm"
+    apply_rules: true
+    max_attempts: 3
+    skip_verifier: false
+    default_model: "gemini-2.5-flash"
+    escalation_model: "gemini-2.5-pro"
+    enable_escalation: true
