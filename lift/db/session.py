@@ -42,16 +42,27 @@ def drop_db(engine: Engine) -> None:
     Base.metadata.drop_all(bind=engine)
 
 
+import threading
+
+_db_lock = threading.Lock()
+
+
 @contextmanager
 def get_db(engine: Engine) -> Generator[Session, None, None]:
     """Context manager for acquiring and closing a database session."""
     session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     session = session_factory()
+    is_sqlite = engine.dialect.name == "sqlite"
     try:
         yield session
-        session.commit()
+        if is_sqlite:
+            with _db_lock:
+                session.commit()
+        else:
+            session.commit()
     except Exception:
         session.rollback()
         raise
     finally:
         session.close()
+
