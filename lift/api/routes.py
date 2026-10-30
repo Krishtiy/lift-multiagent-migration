@@ -6,10 +6,11 @@ from collections import Counter
 from typing import List
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lift.api.dashboard import compute_job_analytics, render_dashboard_html
 from lift.api.schemas import (
     AgentCallResponse,
     ChunkResponse,
@@ -19,6 +20,7 @@ from lift.api.schemas import (
 )
 from lift.db.models import AgentCall, Chunk, ChunkStatus, Job, JobStatus, utcnow
 from lift.db.session import create_db_engine, get_db, init_db
+
 
 
 def create_app(engine=None) -> FastAPI:
@@ -177,5 +179,36 @@ def create_app(engine=None) -> FastAPI:
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+    @router.get("/jobs/{job_id}/analytics")
+    def get_job_analytics(job_id: str, session: Session = Depends(get_session)):
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return compute_job_analytics(session, job_id)
+
+    @router.get("/dashboard/{job_id}", response_class=HTMLResponse)
+    def view_dashboard(job_id: str, session: Session = Depends(get_session)):
+        job = session.get(Job, job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        analytics = compute_job_analytics(session, job_id)
+        chunks = session.scalars(
+            select(Chunk).where(Chunk.job_id == job_id).order_by(Chunk.dependency_level.asc())
+        ).all()
+        chunks_data = [
+            {
+                "id": c.id,
+                "file_path": c.file_path,
+                "dependency_level": c.dependency_level,
+                "status": c.status.value,
+                "attempt_count": c.attempt_count,
+                "review_reason": c.review_reason,
+            }
+            for c in chunks
+        ]
+        return render_dashboard_html(job_id, analytics, chunks_data)
+
     app.include_router(router)
     return app
+
