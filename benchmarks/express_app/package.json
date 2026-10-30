@@ -1,0 +1,11 @@
+{
+  "name": "express-benchmark-service",
+  "version": "1.0.0",
+  "description": "Legacy Express.js microservice benchmark for Lift migration to FastAPI",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node tests/test_express.js"
+  },
+  "dependencies": {}
+}

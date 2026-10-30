@@ -1,1 +1,1 @@
-"""Express to FastAPI migration recipe."""
+"""Express to FastAPI migration recipe package."""
