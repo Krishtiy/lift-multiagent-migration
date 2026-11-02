@@ -12,7 +12,7 @@ from lift.db.models import Base
 
 DEFAULT_DB_URL = os.environ.get(
     "LIFT_DATABASE_URL",
-    "postgresql://lift_user:lift_password@localhost:5432/lift_db"
+    "sqlite:///lift.db"
 )
 
 

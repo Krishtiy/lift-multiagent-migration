@@ -67,6 +67,7 @@ class MigrationOrchestrator:
         skip_verifier: bool = False,
         role_mode: str = "separated",
         enable_escalation: bool = True,
+        verbose: bool = True,
     ):
         self.engine = engine or create_db_engine("sqlite:///:memory:")
         init_db(self.engine)
@@ -78,6 +79,7 @@ class MigrationOrchestrator:
         self.skip_verifier = skip_verifier
         self.role_mode = role_mode
         self.enable_escalation = enable_escalation
+        self.verbose = verbose
 
         self.migrator = MigratorAgent(llm_client=self.llm_client)
         self.sandbox_runner = create_sandbox_runner()
@@ -110,16 +112,25 @@ class MigrationOrchestrator:
             active_job_id = job.id
 
         # 2. Phase 4: Deterministic Analysis
+        if self.verbose:
+            print(f"[*] Analyzing repository files in: {repo_root}", flush=True)
         analyzer = RepositoryAnalyzer(str(repo_root))
         graph = analyzer.analyze()
+        if self.verbose:
+            print(f"[*] Dependency analysis complete: {len(graph.nodes)} file(s) found", flush=True)
 
         # 3. Phase 5: Deterministic Planning
+        if self.verbose:
+            print(f"[*] Generating migration plan for recipe '{recipe}'...", flush=True)
         planner = RepositoryPlanner(
             repo_root=str(repo_root),
             token_budget_per_chunk=4000,
             recipe_name=recipe,
         )
         plan = planner.plan_from_graph(graph)
+        total_chunks = len(plan.chunks)
+        if self.verbose:
+            print(f"[*] Migration plan created: {total_chunks} chunk(s) across {len(plan.chunks_by_level)} dependency level(s)\n", flush=True)
 
         # 4. Populate Chunks in DB
         with get_db(self.engine) as session:
@@ -137,8 +148,12 @@ class MigrationOrchestrator:
         chunk_summaries: List[Dict[str, Any]] = []
 
         # 5. Execute Loop Level by Level
+        chunk_idx = 0
         for level in sorted(plan.chunks_by_level.keys()):
             for chunk in plan.chunks_by_level[level]:
+                chunk_idx += 1
+                if self.verbose:
+                    print(f"[{chunk_idx}/{total_chunks}] Migrating {chunk.file_path} (Level {level})...", flush=True)
                 summary = self._process_chunk(
                     active_job_id=active_job_id,
                     repo_root=repo_root,
@@ -193,6 +208,9 @@ class MigrationOrchestrator:
         with get_db(self.engine) as session:
             transition_chunk(session, chunk_id, ChunkStatus.PENDING, ChunkStatus.TESTS_READY)
 
+        if self.verbose:
+            print(f"  -> [Recorder] Recording characterization baseline tests...", flush=True)
+
         # Extract functions and generate test cases
         test_cases = []
         for fn_name in self._extract_function_names(original_source):
@@ -206,6 +224,8 @@ class MigrationOrchestrator:
 
         # Step 2: Apply deterministic rules pass if enabled
         if self.apply_rules_pass:
+            if self.verbose:
+                print(f"  -> [Rules Pass] Applying deterministic AST transforms...", flush=True)
             rules_res = Py2ToPy3RulesPass.apply_rules(original_source)
             candidate_code = rules_res.code
         else:
@@ -272,9 +292,13 @@ class MigrationOrchestrator:
                     transition_chunk(
                         session, chunk_id, ChunkStatus.MIGRATING, ChunkStatus.NEEDS_REVIEW, review_reason
                     )
+                if self.verbose:
+                    print(f"  -> [Reviewer] [WARN] Token budget exceeded. Rolling back and flagging for review.", flush=True)
                 return {"chunk_id": chunk_id, "file_path": chunk.file_path, "status": ChunkStatus.NEEDS_REVIEW.value, "reason": "budget"}
 
             # Migrator agent proposes candidate code
+            if self.verbose:
+                print(f"  -> [Attempt {attempt_idx}/{self.max_attempts}] Dispatching code to Migrator ({model_to_use})...", flush=True)
             attempt_res = self.migrator.migrate_chunk(
                 context_pack=chunk,
                 rules_pass_code=candidate_code,
@@ -287,6 +311,9 @@ class MigrationOrchestrator:
             # Verifier runs syntax, golden equivalence, and regression checks
             with get_db(self.engine) as session:
                 transition_chunk(session, chunk_id, ChunkStatus.MIGRATING, ChunkStatus.VERIFYING)
+
+            if self.verbose:
+                print(f"  -> [Verifier] Validating syntax and equivalence in isolated sandbox...", flush=True)
 
             verif_res: VerificationResult = self.verifier.verify(
                 repo_root=str(repo_root),
@@ -316,6 +343,8 @@ class MigrationOrchestrator:
                     regression_suites.append(golden_suite)
                 with get_db(self.engine) as session:
                     transition_chunk(session, chunk_id, ChunkStatus.VERIFYING, ChunkStatus.PASSED)
+                if self.verbose:
+                    print(f"  -> [Verifier] [PASS] Verification passed on attempt {attempt_idx}!\n", flush=True)
                 return {
                     "chunk_id": chunk_id,
                     "file_path": chunk.file_path,
@@ -332,6 +361,8 @@ class MigrationOrchestrator:
                     transition_chunk(
                         session, chunk_id, ChunkStatus.VERIFYING, ChunkStatus.NEEDS_REVIEW, review_reason
                     )
+                if self.verbose:
+                    print(f"  -> [Reviewer] [WARN] Stuck in repetitive failure loop. Rolling back and flagging for review.\n", flush=True)
                 return {
                     "chunk_id": chunk_id,
                     "file_path": chunk.file_path,
@@ -343,6 +374,10 @@ class MigrationOrchestrator:
             last_failure_key = current_failure_key
             last_report = verif_res.trimmed_report
 
+            if self.verbose:
+                fail_summary = verif_res.triage_category or "verification test failure"
+                print(f"  -> [Verifier] [FAIL] Attempt {attempt_idx} failed: {fail_summary}. Entering repair loop...", flush=True)
+
             # Prepare retry if attempts remain
             if attempt_idx < self.max_attempts:
                 with get_db(self.engine) as session:
@@ -351,6 +386,8 @@ class MigrationOrchestrator:
 
         # Max attempts exhausted -> Rollback and mark NEEDS_REVIEW
         self._rollback(target_file, original_source)
+        if self.verbose:
+            print(f"  -> [Reviewer] [WARN] Max attempts ({self.max_attempts}) exhausted. Rolling back and flagging for review.\n", flush=True)
         with get_db(self.engine) as session:
             transition_chunk(
                 session, chunk_id, ChunkStatus.VERIFYING, ChunkStatus.NEEDS_REVIEW, ReviewReason.MAX_ATTEMPTS

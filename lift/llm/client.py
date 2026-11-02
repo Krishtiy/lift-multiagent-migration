@@ -103,8 +103,64 @@ class FakeLLMProvider(BaseLLMProvider):
         }
 
 
+class GeminiLLMProvider(BaseLLMProvider):
+    """Live Google Gemini provider using official google-genai SDK."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        import os
+        from google import genai
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY is required for live Gemini execution.")
+        self.client = genai.Client(api_key=self.api_key)
+
+    def generate(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "gemini-3.8-flash",
+        temperature: float = 0.0,
+    ) -> Dict[str, Any]:
+        from google.genai import types
+
+        prompt_parts = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            prompt_parts.append(f"[{role.upper()}]:\n{content}\n")
+        full_prompt = "\n".join(prompt_parts)
+
+        target_model = "gemini-3.8-pro" if "pro" in model.lower() else "gemini-3.8-flash"
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="application/json",
+        )
+        try:
+            response = self.client.models.generate_content(
+                model=target_model,
+                contents=full_prompt,
+                config=config,
+            )
+        except Exception as exc:
+            err_msg = str(exc)
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                raise LLMRateLimitError(f"Gemini rate limit exceeded: {exc}")
+            raise LLMTransientError(f"Gemini API error: {exc}")
+
+        usage = getattr(response, "usage_metadata", None)
+        prompt_tokens = getattr(usage, "prompt_token_count", max(1, len(full_prompt) // 4)) if usage else max(1, len(full_prompt) // 4)
+        completion_tokens = getattr(usage, "candidates_token_count", max(1, len(response.text or "") // 4)) if usage else max(1, len(response.text or "") // 4)
+
+        return {
+            "content": response.text or "{}",
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        }
+
+
 # Standard pricing per million tokens
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
+    "gemini-3.8-flash": {"prompt": 0.15, "completion": 0.60},
+    "gemini-3.8-pro": {"prompt": 1.25, "completion": 5.00},
     "gemini-2.5-flash": {"prompt": 0.15, "completion": 0.60},
     "gemini-2.5-pro": {"prompt": 1.25, "completion": 5.00},
     "mock-model": {"prompt": 0.10, "completion": 0.20},
@@ -120,8 +176,27 @@ class UnifiedLLMClient:
         cache: Optional[LLMCache] = None,
         token_budget: int = 500_000,
         max_retries: int = 3,
+        use_fake: bool = False,
     ):
-        self.provider = provider or FakeLLMProvider()
+        import os
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except ImportError:
+            pass
+
+        if provider:
+            self.provider = provider
+        elif use_fake or os.environ.get("LIFT_USE_FAKE_LLM") == "1":
+            self.provider = FakeLLMProvider()
+        elif os.environ.get("GEMINI_API_KEY"):
+            try:
+                self.provider = GeminiLLMProvider()
+            except Exception:
+                self.provider = FakeLLMProvider()
+        else:
+            self.provider = FakeLLMProvider()
+
         self.cache = cache or LLMCache()
         self.token_budget = token_budget
         self.max_retries = max_retries
