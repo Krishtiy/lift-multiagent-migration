@@ -1,203 +1,249 @@
-# Lift: Multi-Agent Legacy Code Migration System
+# Lift: Deterministic Multi-Agent Legacy Code Migration System
 
-A deterministic, multi-agent legacy migration platform backed by characterization testing ("golden master" approach), PostgreSQL concurrency control, Docker sandbox isolation, and empirical evaluation.
+[![Tests](https://img.shields.io/badge/Tests-54%20Passing-brightgreen.svg)](tests/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![LLM](https://img.shields.io/badge/LLM-Gemini%203.8%20Flash%20%26%20Pro-orange.svg)](https://ai.google.dev/)
+[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+
+> A deterministic, multi-agent platform that modernizes legacy codebases without regressions. Powered by **characterization testing ("golden master" recording)**, **Gemini 3.8 AI with dynamic model escalation**, **isolated sandbox verification**, and **distributed database leases**.
 
 ---
 
-## 1. System Architecture
+## 1. How the Multi-Agent System Works (Simplified Architecture)
+
+Unlike typical AI coding assistants that try to rewrite entire projects in a single prompt and hallucinate broken code, **Lift operates as a deterministic factory of specialized agents**.
+
+Each agent has a **single responsibility**, restricted tools, and passes verified data to the next agent:
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer ["1. Ingestion & API Layer"]
-        CLI["CLI: lift run <repo>"] --> API["FastAPI Service Layer"]
-        API --> DB[(PostgreSQL State Machine)]
+    %% Styling
+    classDef input fill:#1e293b,stroke:#64748b,stroke-width:2px,color:#f8fafc;
+    classDef agent fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#93c5fd;
+    classDef decision fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;
+    classDef success fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#6ee7b7;
+    classDef failure fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fca5a5;
+
+    Repo["📂 Legacy Repository (Python 2 or Express.js)"]:::input --> A1
+
+    subgraph Pipeline ["Lift Multi-Agent Pipeline"]
+        A1["🔍 1. Analyzer Agent<br/>(Scans AST & builds dependency DAG)"]:::agent --> A2["📋 2. Planner Agent<br/>(Orders code into topological chunks)"]:::agent
+        A2 --> A3["🎙️ 3. Recorder Agent<br/>(Runs legacy code & records baseline outputs)"]:::agent
+        A3 --> A4["⚡ 4. Rules Engine<br/>(Applies deterministic syntax rewrites)"]:::agent
+        A4 --> A5["🤖 5. Migrator Agent<br/>(Gemini 3.8 AI rewrites complex semantics)"]:::agent
+        A5 --> A6["🛡️ 6. Verifier Agent<br/>(Executes candidate in isolated sandbox)"]:::agent
     end
 
-    subgraph OrchestrationLayer ["2. Deterministic Control Loop"]
-        Worker["Worker Pool (FOR UPDATE SKIP LOCKED)"] --> SM["Chunk State Machine"]
-        SM --> Analyzer["Phase 4: Analyzer (AST Dependency Graph)"]
-        Analyzer --> Planner["Phase 5: Planner (Chunk & Context Pack)"]
-        Planner --> Recorder["Phase 6: Test Recorder (Old Code Baseline)"]
-    end
+    A6 --> Check{"Are behavioral outputs<br/>identical to baseline?"}:::decision
 
-    subgraph MigrationLoop ["3. Modernization & Verification Loop"]
-        Recorder --> RulesPass["Phase 7: Deterministic Rules Pass"]
-        RulesPass --> Migrator["Phase 9: Migrator Agent (LLM + Prompt Cache)"]
-        Migrator --> Verifier["Phase 9: Verifier Agent"]
-        Verifier --> Sandbox["Phase 3: Docker Sandbox Runner"]
-        Sandbox --> EquivCheck{"Equivalence Check"}
-        EquivCheck -- "Pass & Zero Regressions" --> Commit["Commit Python 3 Code"]
-        EquivCheck -- "Failed (Attempts < 3)" --> Retry["Trimmed Error Feedback & Escalation"]
-        Retry --> Migrator
-        EquivCheck -- "Identical Error Twice" --> Rollback["Quarantine: NEEDS_REVIEW (Stuck)"]
-    end
-
-    subgraph Observability ["4. Real-time Observability"]
-        Commit --> Dashboard["Live HTML Dashboard & SSE Stream"]
-        Rollback --> Dashboard
-    end
+    Check -- "YES (Zero Regressions)" --> Done["✅ Commit Modernized Code<br/>(Python 3 / FastAPI)"]:::success
+    Check -- "NO (Attempt < 3)" --> Repair["🔁 Repair Feedback Loop<br/>(Send exact sandbox error to Migrator)"]:::agent
+    Repair --> A5
+    Check -- "NO (Repeated Error)" --> Rollback["🚨 Quarantine: NEEDS_REVIEW<br/>(Automatic rollback to snapshot)"]:::failure
 ```
 
 ---
 
-## 2. Key Architectural Tenets
+## 2. Meet the Specialized Agents
 
-1. **Deterministic Orchestrator Over Autonomous Agent Chaos**:
-   - The overall workflow (queueing, chunk dependency ordering, state transitions, characterization recording, retry budgeting, loop detection, and rollback) is handled by deterministic code—never by an LLM guessing what to do next.
-2. **Ground-Truth Characterization Testing ("Golden Master")**:
-   - Before any code is changed, the `CharacterizationRecorder` probes the original legacy code in an isolated sandbox, capturing inputs, outputs, exceptions, and stdout across multiple runs to verify repeatability. A migration attempt only passes if it reproduces the exact legacy behavior.
-3. **Database Concurrency & Row-Level Locking**:
-   - Workers query `SELECT * FROM chunks WHERE status = 'PENDING' ORDER BY dependency_level ASC FOR UPDATE SKIP LOCKED`. Multiple worker processes can run in parallel with zero duplicate processing and automatic lease recovery via an integrated lease reaper.
-4. **Specialized Single-Responsibility Agents**:
-   - Rather than asking a single LLM to perform planning, migration, and testing, roles are strictly partitioned:
-     - **Analyzer**: Computes AST dependency graph, detects cycles, and derives topological levels.
-     - **Planner**: Bundles type hints, caller contexts, and dependencies into token-budgeted `ContextPack` objects.
-     - **Migrator**: Dedicated code rewriter with restricted tools (only modifies candidate chunk code).
-     - **Verifier**: Runs syntax compilation, golden suite re-execution, and cumulative regression checking against previously modernized modules.
-5. **Infinite Loop Detection & Automated Rollback**:
-   - If the verifier encounters the exact same failure signature on consecutive attempts, it detects a loop, aborts further LLM token expenditure, rolls back the file to its pre-migration snapshot, and marks the chunk `NEEDS_REVIEW` with `review_reason="stuck"`.
+Instead of giving one model full control, Lift separates concerns across 5 specialized agents and a deterministic orchestrator:
+
+| Agent | Responsibility | Tools & Capabilities Used | Input ➔ Output |
+| :--- | :--- | :--- | :--- |
+| **1. Analyzer Agent** | Analyzes project file dependencies and detects circular imports. | • Python `ast` parser<br/>• NetworkX Directed Graph (`nx.DiGraph`) | Files ➔ **Dependency Graph (DAG)** |
+| **2. Planner Agent** | Breaks repository into token-budgeted chunks ordered from leaf modules upward. | • Topological sorter<br/>• Token budget estimator | Graph ➔ **Ordered Migration Plan** |
+| **3. Recorder Agent** | Runs the original legacy code *before* any edits to record ground-truth outputs. | • Subprocess test runner<br/>• Input/Output serializer | Legacy Code ➔ **"Golden Master" Test Suite** |
+| **4. Migrator Agent** | Translates legacy idioms into clean, modern code. | • Google Gemini 3.8 Flash / Pro<br/>• SHA-256 prompt disk cache | Legacy Chunk + Errors ➔ **Candidate Code** |
+| **5. Verifier Agent** | Strictly verifies candidate code in an isolated sandbox against the golden suite. | • AST compiler<br/>• Subprocess sandbox runner<br/>• Semantic output comparator | Candidate Code ➔ **Verification Verdict (Pass / Fail)** |
+| **6. Reviewer Agent** | Detects infinite repair loops or budget overflows; triggers instant rollback. | • State machine controller<br/>• SQLite / Postgres lease manager | Stuck Attempts ➔ **Safe Rollback to Original Code** |
 
 ---
 
-## 3. Migration Recipes
+## 3. Tool Calling & Safe Sandboxing
 
-Lift supports two recipes:
+Lift enforces **strict tool restriction**—agents do not have free-reign bash execution:
 
-### Recipe 1: Python 2 to Python 3 (`py2_to_py3`)
-- **Category**: Same-language syntactic and runtime modernization.
-- **Planted Gotchas Handled**:
-  - `print` statements without parentheses (`G-01`)
-  - `except Exception, e` comma-binding syntax (`G-02`)
-  - `xrange()` lazy integer ranges (`G-03`)
-  - `dict.has_key(k)` dictionary membership (`G-04`)
-  - Integer division `/` true division vs floor division semantic drift (`G-05`)
-  - Iterator indexing for `map()`, `filter()`, `zip()` (`G-06`)
-  - `dict.iteritems()` iterator vs view (`G-07`)
-  - `long` integer literal (`123456789L`) and type removal (`G-08`)
-  - `__nonzero__` to `__bool__` truthiness evaluation (`G-09`)
-  - `str` vs `unicode` vs `bytes` encoding differences (`G-10`)
-  - Mixed-type sorting and `cmp` comparison function removal (`G-11`)
-  - Legacy standard library module relocations (`StringIO`, `urllib2`) (`G-12`)
-
-### Recipe 2: Express to FastAPI (`express_to_fastapi`)
-- **Category**: Cross-language framework migration (Node.js/JavaScript -> Python).
-- **Planted Gotchas Handled**:
-  - Express `:param` path syntax to FastAPI `{param}` with typed arguments (`E-01`)
-  - `res.status(c).json(data)` method chaining to FastAPI status decorators and returned dictionaries (`E-02`)
-  - Untyped query parameters (`req.query.limit`) to typed Python parameters (`E-03`)
-  - Middleware request mutation (`req.user`) to FastAPI `Depends(authenticate)` (`E-04`)
-  - Missing `return` after `res.send()` to clean exception raises (`E-05`)
-  - Manual payload validation to Pydantic schemas (`E-06`)
+1. **Deterministic Pre-Transforms**:
+   - Before any AI model is called, deterministic regex and AST rules transform obvious syntax changes (e.g., `print x` ➔ `print(x)`, `xrange` ➔ `range`). This cuts token costs by **32%**.
+2. **Dynamic AI Escalation (Flash ➔ Pro)**:
+   - Attempt 1 & 2 use **Gemini 3.8 Flash** ($0.15/M tokens) for maximum speed and cost efficiency.
+   - If a tricky bug persists, Attempt 3 automatically escalates to **Gemini 3.8 Pro** with the sandbox failure logs to solve edge cases.
+3. **Zero-Regression Golden Master Testing**:
+   - The Verifier agent executes the modernized code against inputs recorded from the legacy version. If `10 / 4` returns `2.5` in Python 3 when the legacy code returned integer `2`, the test catches the drift immediately.
+4. **Sandboxed Subprocesses**:
+   - All test executions run in isolated temporary folders (`tempfile.TemporaryDirectory`) with restricted execution timeouts.
 
 ---
 
-## 4. Empirical Evaluation & Experiment Results (E0–E4)
-
-Evaluated against the `benchmarks/py2_app` benchmark suite (3 modules, 12 planted gotchas, unit dev suite, and held-out semantic oracle suite):
-
-| Experiment | Condition | First-Try Pass % | Overall Pass % | Human Review % | Dev Suite Pass % | Held-Out Oracle % | Gotchas Caught (/12) | Mean Tokens | Cost ($) | Duration |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **E0: Baselines** | Rules-Only Baseline | 100.0% | 100.0% | 0.0% | 0.0% | 0.0% | 8 / 12 | 0 | $0.0000 | 3.8s |
-| | 1-Shot LLM Rewrite (No Verifier) | 100.0% | 100.0% | 0.0% | 0.0% | 0.0% | 9 / 12 | 1,000 | $0.0003 | 3.9s |
-| | **Full Lift Pipeline (Multi-Agent)** | **100.0%** | **100.0%** | **0.0%** | **100.0%** | **100.0%** | **12 / 12** | 2,850 | $0.0008 | 9.2s |
-| **E1: Rules Ablation** | LLM-Only (No Rules Pass) | 33.3% | 66.7% | 33.3% | 66.7% | 66.7% | 8 / 12 | 4,200 | $0.0012 | 14.5s |
-| | **Rules Pass + LLM** | **100.0%** | **100.0%** | **0.0%** | **100.0%** | **100.0%** | **12 / 12** | **2,850** | **$0.0008** | **9.2s** |
-| **E2: Retries** | 0 Retries (1 Attempt Max) | 33.3% | 33.3% | 66.7% | 33.3% | 33.3% | 5 / 12 | 1,100 | $0.0003 | 4.1s |
-| | 1 Retry (2 Attempts Max) | 33.3% | 66.7% | 33.3% | 66.7% | 66.7% | 9 / 12 | 2,100 | $0.0006 | 7.4s |
-| | **3 Retries (4 Attempts Max)** | **33.3%** | **100.0%** | **0.0%** | **100.0%** | **100.0%** | **12 / 12** | 3,200 | $0.0009 | 10.8s |
-| **E3: Roles** | Monolithic Single Agent | 33.3% | 66.7% | 33.3% | 66.7% | 50.0% | 7 / 12 | 4,800 | $0.0014 | 16.2s |
-| | **Separated Roles (Lift)** | **100.0%** | **100.0%** | **0.0%** | **100.0%** | **100.0%** | **12 / 12** | **2,850** | **$0.0008** | **9.2s** |
-| **E4: Models** | Cheap Model (Flash) | 66.7% | 66.7% | 33.3% | 66.7% | 66.7% | 8 / 12 | 2,400 | $0.0002 | 7.9s |
-| | Strong Model (Pro) | 100.0% | 100.0% | 0.0% | 100.0% | 100.0% | 12 / 12 | 3,100 | $0.0045 | 12.1s |
-| | **Dynamic Escalation (Lift)** | **66.7%** | **100.0%** | **0.0%** | **100.0%** | **100.0%** | **12 / 12** | **2,850** | **$0.0008** | **9.2s** |
-
-### Key Empirical Findings:
-1. **Rules Pass Reduces Token Spend by 32%**: Running deterministic regex/AST transforms before model invocation drastically lowers prompt size and eliminates trivial syntax errors.
-2. **Characterization Tests Prevent Silent Regressions**: Baselines pass syntax checks but fail the held-out oracle on integer division (`10 / 4 = 2.5` instead of `2`) and mixed-type sorting. Lift's test recorder catches these semantic drifts immediately.
-3. **Dynamic Escalation Gives Strong-Model Quality at Cheap-Model Cost**: Starting with `gemini-2.5-flash` and escalating to `gemini-2.5-pro` only on retry achieves 100% test pass at 1/5th the dollar cost of pro-only.
-
----
-
-## 5. Quickstart & Usage
+## 4. Quickstart & Usage
 
 ### Installation
-```bash
-# Clone repository
-git clone https://github.com/example/lift.git
-cd lift
 
-# Install in editable mode with development dependencies
+```powershell
+# 1. Clone repository
+git clone https://github.com/Krishtiy/lift-multiagent-migration.git
+cd lift-multiagent-migration
+
+# 2. Install package in editable mode
 pip install -e .
 ```
 
-### Running a Migration via CLI
-```bash
-# Run Python 2 to Python 3 modernization
-lift run benchmarks/py2_app --recipe py2-to-py3 --budget 500000
-
-# Run Express to FastAPI migration
-lift run benchmarks/express_app --recipe express-to-fastapi
+### Configure Your API Key (Optional for live runs)
+Create a `.env` file in the project root:
+```env
+GEMINI_API_KEY="your_google_gemini_api_key_here"
 ```
-
-### Running Benchmark Experiments
-```bash
-# Run baseline experiment (E0)
-python -m experiments.run --config experiments/configs/e0_baselines.yaml --runs 3
-
-# Run rules ablation experiment (E1)
-python -m experiments.run --config experiments/configs/e1_ablation_rules.yaml --runs 3
-
-# Run all experiments in offline fake-LLM mode
-python -m experiments.run --all --fake-llm
-```
-
-### Starting the FastAPI Service & Live Dashboard
-```bash
-# Launch API service
-uvicorn lift.api.routes:app --host 0.0.0.0 --port 8000 --reload
-```
-- Interactive API Docs: `http://localhost:8000/docs`
-- Live HTML Observability Dashboard: `http://localhost:8000/dashboard/{job_id}`
-- Job Analytics Endpoint: `GET http://localhost:8000/jobs/{job_id}/analytics`
+*(If no API key is provided, Lift automatically defaults to the zero-cost offline mock provider).*
 
 ---
 
-## 6. Repository Layout
+### Running a Migration
 
+You can run Lift on **any legacy project folder** on your machine:
+
+#### Mode A: Interactive Recipe Menu (Recommended)
+Simply pass the path to the legacy code (e.g., `.` or a folder path):
+```powershell
+lift run .
 ```
-multiagent_project/
-├── .github/
-│   └── workflows/ci.yml         # Multi-python CI matrix (3.11, 3.12, 3.13)
-├── benchmarks/
-│   ├── py2_app/                 # Python 2 benchmark (12 planted gotchas, dev & heldout tests)
-│   └── express_app/             # Express.js benchmark (8 planted gotchas, auth, CRUD routes)
-├── experiments/
-│   ├── configs/                 # YAML configurations for experiments E0 through E4
-│   ├── results/                 # Exported CSVs and Markdown reports
-│   ├── harness.py               # Experiment execution engine & gotcha auditor
-│   └── run.py                   # CLI experiment runner
-├── lift/
-│   ├── agents/                  # Analyzer, Planner, Migrator, Verifier, Recorder
-│   ├── api/                     # FastAPI endpoints, schemas, and live HTML dashboard
-│   ├── core/                    # Migration orchestrator, state machine, worker queue
-│   ├── db/                      # SQLAlchemy models and session engine
-│   ├── llm/                     # Unified client, SHA256 disk cache, token budgeting
-│   ├── recipes/
-│   │   ├── py2_to_py3/          # Deterministic rules pass for Python 2 to 3
-│   │   └── express_to_fastapi/  # Express parser, FastAPI rules pass, HTTP comparator
-│   ├── sandbox/                 # Docker container runner with subprocess fallback
-│   └── cli.py                   # CLI entry point (lift run)
-├── tests/                       # 54 automated unit, concurrency, and hardening tests
-├── docker-compose.yml           # Local PostgreSQL and container setup
-└── pyproject.toml               # Package build configuration
+Lift will interactively ask you which recipe you want:
+```text
+============================================================
+ SELECT MIGRATION RECIPE:
+   [1] Python 2 -> Python 3       (py2_to_py3)
+   [2] Express.js -> FastAPI       (express_to_fastapi)
+============================================================
+ Enter choice [1 or 2] (default: 1): 1
+```
+
+#### Mode B: Direct Command (One-Liner)
+```powershell
+# Python 2 to Python 3
+lift run path/to/legacy_repo py2_to_py3
+
+# Express.js to FastAPI
+lift run path/to/express_repo express_to_fastapi
+```
+
+#### Mode C: Offline Mock Mode ($0 Cost, Instant)
+Add `--fake-llm` to test the full pipeline and state machine without using API tokens:
+```powershell
+lift run benchmarks/py2_app --fake-llm
 ```
 
 ---
 
-## 7. Testing & Verification
+## 5. Live Terminal Telemetry
 
-Run the full automated test suite (54 unit, concurrency, and failure-injection tests):
-```bash
+During migration, Lift outputs real-time agent execution logs so you can monitor progress step-by-step:
+
+```text
+============================================================
+ LIFT: MULTI-AGENT LEGACY CODE MIGRATION
+============================================================
+ Target Repository : C:\Users\krish\snake-game
+ Migration Recipe  : py2_to_py3
+ Token Budget      : 500,000 tokens
+ LLM Provider      : Live Gemini AI
+============================================================
+
+[*] Analyzing repository files in: C:\Users\krish\snake-game
+[*] Dependency analysis complete: 1 file(s) found
+[*] Generating migration plan for recipe 'py2_to_py3'...
+[*] Migration plan created: 1 chunk(s) across 1 dependency level(s)
+
+[1/1] Migrating snake.py (Level 0)...
+  -> [Recorder] Recording characterization baseline tests...
+  -> [Rules Pass] Applying deterministic AST transforms...
+  -> [Attempt 1/3] Dispatching code to Migrator (gemini-3.8-flash)...
+  -> [Verifier] Validating syntax and equivalence in isolated sandbox...
+  -> [Verifier] [PASS] Verification passed on attempt 1!
+
+============================================================
+ MIGRATION EXECUTION SUMMARY (MILESTONE 1)
+============================================================
+ Job ID           : ac0e47a0-a00d-4fea-a173-38ef3ab2ac20
+ Total Chunks     : 1
+ Passed (100%)    : 1
+ Needs Review     : 0
+ Failed           : 0
+ Tokens Consumed  : 1,311
+ Total LLM Cost   : $0.0002
+ Wall Duration    : 8.4s
+============================================================
+
+Chunk Breakdown:
+  [PASS] snake.py                            : PASSED (Attempts: 1)
+```
+
+---
+
+## 6. Migration Recipes Supported
+
+### Recipe 1: Python 2 to Python 3 (`py2_to_py3`)
+Handles 12 insidious runtime gotchas:
+- `print` statement to function (`G-01`)
+- `except Exception, e` comma-binding syntax (`G-02`)
+- `xrange()` lazy ranges to `range()` (`G-03`)
+- `dict.has_key(k)` to `k in dict` (`G-04`)
+- Integer division `/` true division semantic drift (`G-05`)
+- Iterator indexing for `map()`, `filter()`, `zip()` (`G-06`)
+- `dict.iteritems()` to `dict.items()` (`G-07`)
+- `long` literal (`123L`) removal (`G-08`)
+- `__nonzero__` to `__bool__` (`G-09`)
+- `str` vs `unicode` vs `bytes` encoding (`G-10`)
+- Mixed-type comparisons & `cmp=` sorting (`G-11`)
+- Relocated standard library modules (`StringIO`, `urllib2`) (`G-12`)
+
+### Recipe 2: Express.js to FastAPI (`express_to_fastapi`)
+Cross-language modernization from Node.js Express to Python FastAPI:
+- Express `:param` path variables to FastAPI typed `{param}` (`E-01`)
+- `res.status(c).json(data)` method chaining to FastAPI status decorators (`E-02`)
+- Untyped query parameters (`req.query`) to typed Python parameters (`E-03`)
+- Middleware auth (`req.user`) to FastAPI `Depends(authenticate)` (`E-04`)
+- Missing `return` after `res.send()` converted to clean exception raises (`E-05`)
+- Manual payload validation converted to Pydantic models (`E-06`)
+
+---
+
+## 7. Empirical Benchmark Results (E0–E4)
+
+Tested against benchmark suites across 5 ablation experiments:
+
+| Experiment | Condition | Pass Rate % | Regressions | Tokens Used | Cost ($) | Duration |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **E0: Baselines** | Rules-Only Baseline | 0.0% (Failed semantics) | High | 0 | $0.0000 | 3.8s |
+| | 1-Shot LLM (No Sandbox) | 0.0% (Failed edge cases) | High | 1,000 | $0.0003 | 3.9s |
+| | **Full Lift Multi-Agent Pipeline** | **100.0%** | **0.0% (Zero)** | **2,850** | **$0.0008** | **9.2s** |
+| **E1: Rules Ablation** | LLM-Only (No Rules Pass) | 66.7% | Moderate | 4,200 | $0.0012 | 14.5s |
+| | **Rules Pass + LLM** | **100.0%** | **0.0%** | **2,850** | **$0.0008** | **9.2s** |
+| **E2: Retries** | 0 Retries (1 Attempt) | 33.3% | High | 1,100 | $0.0003 | 4.1s |
+| | **3 Retries + Sandbox Loop** | **100.0%** | **0.0%** | **3,200** | **$0.0009** | **10.8s** |
+| **E3: Roles** | Monolithic Single Agent | 66.7% | Moderate | 4,800 | $0.0014 | 16.2s |
+| | **Separated Roles (Lift)** | **100.0%** | **0.0%** | **2,850** | **$0.0008** | **9.2s** |
+| **E4: Models** | Cheap Model Only (Flash) | 66.7% | Moderate | 2,400 | $0.0002 | 7.9s |
+| | Strong Model Only (Pro) | 100.0% | 0.0% | 3,100 | $0.0045 | 12.1s |
+| | **Dynamic Escalation (Lift)** | **100.0%** | **0.0%** | **2,850** | **$0.0008** | **9.2s** |
+
+---
+
+## 8. Automated Test Suite
+
+Lift includes **54 automated unit, concurrency, and fault-injection tests**:
+
+```powershell
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
-All 54 tests pass cleanly with zero failures.
+
+```text
+Ran 54 tests in 10.742s
+OK
+```
+
+Tests cover:
+- AST dependency cycle breaking & topological sorting
+- Characterization recorder baseline equivalence
+- Isolated sandbox runner execution & timeout enforcement
+- Row-level database chunk leasing (`SKIP LOCKED`) & reaper recovery
+- Loop detection & automated rollback under failure injection
+- Express to FastAPI router translation & route validation
