@@ -19,15 +19,29 @@ DEFAULT_DB_URL = os.environ.get(
 def create_db_engine(db_url: str = DEFAULT_DB_URL, echo: bool = False) -> Engine:
     """Create SQLAlchemy engine with connection pool settings."""
     if db_url.startswith("sqlite"):
-        connect_args = {"check_same_thread": False}
+        connect_args = {"check_same_thread": False, "timeout": 30}
         if ":memory:" in db_url:
-            return create_engine(
+            engine = create_engine(
                 db_url,
                 echo=echo,
                 connect_args=connect_args,
                 poolclass=StaticPool,
             )
-        return create_engine(db_url, echo=echo, connect_args=connect_args)
+        else:
+            engine = create_engine(db_url, echo=echo, connect_args=connect_args)
+
+        from sqlalchemy import event
+
+        @event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode = WAL;")
+            cursor.execute("PRAGMA synchronous = NORMAL;")
+            cursor.execute("PRAGMA busy_timeout = 5000;")
+            cursor.close()
+
+        return engine
+
     return create_engine(db_url, echo=echo, pool_pre_ping=True, pool_size=10, max_overflow=20)
 
 

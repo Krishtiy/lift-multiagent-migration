@@ -1,4 +1,21 @@
 services:
+  lift-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lift-migration-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - LIFT_DATABASE_URL=postgresql://lift_user:lift_password@postgres:5432/lift_db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./:/workspace
+
   postgres:
     image: postgres:16-alpine
     container_name: lift-postgres

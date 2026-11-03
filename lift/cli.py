@@ -45,6 +45,12 @@ def main():
         help="Force offline mock LLM provider (costs $0, no API key needed)",
     )
 
+    # Command: serve
+    serve_parser = subparsers.add_parser("serve", help="Start the Lift FastAPI service & live visual dashboard")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    serve_parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface (default: 127.0.0.1)")
+    serve_parser.add_argument("--reload", action="store_true", help="Enable hot reloading for development")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -134,6 +140,22 @@ def main():
         if report.review_chunks > 0 or report.failed_chunks > 0:
             sys.exit(1)
         sys.exit(0)
+    elif args.command == "serve":
+        import uvicorn
+        print("=" * 60)
+        print(" STARTING LIFT MIGRATION SERVICE & LIVE DASHBOARD")
+        print("=" * 60)
+        print(f" Live Dashboard URL : http://{args.host}:{args.port}/")
+        print(f" REST API Docs      : http://{args.host}:{args.port}/docs")
+        print(f" Telemetry Stream   : http://{args.host}:{args.port}/jobs/<id>/events")
+        print("=" * 60)
+        uvicorn.run(
+            "lift.api.routes:create_app",
+            factory=True,
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+        )
     else:
         parser.print_help()
 

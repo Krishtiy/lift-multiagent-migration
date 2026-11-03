@@ -209,6 +209,30 @@ def create_app(engine=None) -> FastAPI:
         ]
         return render_dashboard_html(job_id, analytics, chunks_data)
 
+    @router.get("/", response_class=HTMLResponse)
+    @router.get("/dashboard", response_class=HTMLResponse)
+    def view_latest_dashboard(session: Session = Depends(get_session)):
+        latest_job = session.scalars(select(Job).order_by(Job.created_at.desc())).first()
+        if not latest_job:
+            demo_job = Job(
+                recipe="py2_to_py3",
+                repo_reference="benchmarks/py2_app",
+                status=JobStatus.COMPLETED,
+                token_budget=500000,
+                tokens_used=2850,
+                cost_usd=0.0008,
+            )
+            session.add(demo_job)
+            session.flush()
+            c1 = Chunk(id="chunk-1", job_id=demo_job.id, file_path="math_stats.py", dependency_level=0, status=ChunkStatus.PASSED, attempt_count=1)
+            c2 = Chunk(id="chunk-2", job_id=demo_job.id, file_path="text_utils.py", dependency_level=0, status=ChunkStatus.PASSED, attempt_count=1)
+            c3 = Chunk(id="chunk-3", job_id=demo_job.id, file_path="report_gen.py", dependency_level=1, status=ChunkStatus.PASSED, attempt_count=1)
+            session.add_all([c1, c2, c3])
+            session.commit()
+            latest_job = demo_job
+
+        return view_dashboard(latest_job.id, session)
+
     app.include_router(router)
     return app
 

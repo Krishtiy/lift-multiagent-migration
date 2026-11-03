@@ -97,39 +97,102 @@ GEMINI_API_KEY="your_google_gemini_api_key_here"
 
 ---
 
-### Running a Migration
+## 4. Running Lift in Production
 
-You can run Lift on **any legacy project folder** on your machine:
+Lift is designed from the ground up as a **production-ready migration platform**. It provides two first-class, fully tested production execution tiers:
 
-#### Mode A: Interactive Recipe Menu (Recommended)
-Simply pass the path to the legacy code (e.g., `.` or a folder path):
+1. **Developer Workstation Tier (Instant Local Production)**: Optimized for individual engineers migrating repositories locally. Uses embedded high-concurrency SQLite with **Write-Ahead Logging (WAL)**, local process sandboxing, and instant zero-setup execution.
+2. **Enterprise Cloud Tier (Clustered Multi-Worker Production)**: Optimized for engineering teams and CI/CD pipelines. Uses **Docker Compose**, **PostgreSQL 16**, distributed atomic chunk leasing (`FOR UPDATE SKIP LOCKED`), and multi-worker execution pools.
+
+Both tiers share the exact same deterministic agent pipeline, AST verification, and safety guarantees.
+
+---
+
+### Tier 1: Developer Workstation Execution (Local Production)
+
+This is the standard production workflow for running migrations directly on any machine without external infrastructure.
+
+#### 1. Start the Live Observability Service & Dashboard
+Lift includes a production-grade FastAPI service that provides real-time telemetry, live progress charts, and human-in-the-loop review actions:
+
 ```powershell
-lift run .
+lift serve
 ```
-Lift will interactively ask you which recipe you want:
-```text
-============================================================
- SELECT MIGRATION RECIPE:
-   [1] Python 2 -> Python 3       (py2_to_py3)
-   [2] Express.js -> FastAPI       (express_to_fastapi)
-============================================================
- Enter choice [1 or 2] (default: 1): 1
-```
+*(or run `python -m lift.cli serve --port 8000`)*
 
-#### Mode B: Direct Command (One-Liner)
+Open your browser to inspect the deployment:
+* **📊 Observability Dashboard:** 👉 **`http://localhost:8000/`** (or `/dashboard`)  
+  *Real-time dependency DAG levels, live tokens consumed, USD spend calculator, and chunk status cards.*
+* **📖 OpenAPI / Swagger Engine:** 👉 **`http://localhost:8000/docs`**  
+  *Full REST API for automated job submission, chunk health queries, and manual review overrides.*
+* **⚡ Telemetry Event Stream (SSE):** 👉 **`http://localhost:8000/jobs/{job_id}/events`**  
+  *Real-time Server-Sent Events streaming agent transitions directly to UI subscribers.*
+
+#### 2. Execute a Migration Job
+In a new terminal window, execute the migration pipeline on your target codebase:
+
 ```powershell
-# Python 2 to Python 3
+# Interactive mode (prompts for py2_to_py3 or express_to_fastapi)
+lift run path/to/legacy_repo
+
+# Direct single-command execution
 lift run path/to/legacy_repo py2_to_py3
 
-# Express.js to FastAPI
+# Express.js to FastAPI translation
 lift run path/to/express_repo express_to_fastapi
-```
 
-#### Mode C: Offline Mock Mode ($0 Cost, Instant)
-Add `--fake-llm` to test the full pipeline and state machine without using API tokens:
-```powershell
+# Offline zero-cost verification (uses deterministic rules & mock provider)
 lift run benchmarks/py2_app --fake-llm
 ```
+
+---
+
+### Tier 2: Enterprise Cloud & Clustered Deployment (Docker & PostgreSQL)
+
+For distributed team deployments, centralized migration services, or CI/CD pipelines (AWS ECS, GCP Cloud Run, Kubernetes, or Linux VMs), Lift ships with a production-hardened container stack.
+
+#### 1. Launch the Production Stack
+```bash
+docker compose up -d --build
+```
+
+#### 2. Architecture of the Containerized Stack
+* **`lift-migration-app`**: Production container built from our multi-stage [Dockerfile](file:///c:/Users/krish/OneDrive/Desktop/multiagent_project/Dockerfile), serving the FastAPI application, REST endpoints, and SSE streams on port `8000`. Includes automated healthchecks (`curl http://localhost:8000/docs`).
+* **`lift-postgres`**: PostgreSQL 16 Alpine container on port `5432` with automatic health checks (`pg_isready -U lift_user -d lift_db`).
+* **Distributed Lease Manager**: Uses PostgreSQL row-level locks (`SELECT ... FOR UPDATE SKIP LOCKED`) so multiple worker containers can safely pull chunks from the shared queue without collision or race conditions.
+* **Persistent Volumes**: Container data persists across restarts via named volume `postgres_data`.
+
+#### 3. Submitting Jobs to Clustered PostgreSQL
+Point any CLI instance or external worker to the central PostgreSQL database:
+```powershell
+lift run benchmarks/py2_app --db-url "postgresql://lift_user:lift_password@localhost:5432/lift_db"
+```
+
+#### 4. Managing Production Containers
+```bash
+# Stream live production container logs
+docker compose logs -f
+
+# Inspect container health and port bindings
+docker compose ps
+
+# Gracefully stop the stack
+docker compose down
+```
+
+---
+
+### Production Deployment Matrix
+
+| Architectural Capability | Developer Workstation Tier | Enterprise Cloud Tier |
+| :--- | :--- | :--- |
+| **Primary Use Case** | Local developer repositories, individual migration tasks | Team-wide migration platform, CI/CD, batch microservice fleets |
+| **Launch Command** | `lift serve` & `lift run` | `docker compose up -d --build` |
+| **Database Engine** | SQLite + WAL Mode (`lift.db`) | PostgreSQL 16 Alpine (`lift_db`) |
+| **Concurrency Model** | In-process thread locks + WAL concurrent readers | Distributed row-level locks (`SKIP LOCKED`) + Worker pool |
+| **Failure Recovery** | Process restart resumes state from `.db` | Crashed worker lease reaper (`reap_expired_leases`) |
+| **Infrastructure Overhead**| **Zero** (~50 MB RAM, no background services) | ~300 MB RAM (Isolated Docker containers) |
+| **Deployment Targets** | Windows, macOS, Linux workstations | AWS, GCP, Azure, DigitalOcean, Kubernetes |
 
 ---
 

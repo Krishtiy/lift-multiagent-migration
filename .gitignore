@@ -49,4 +49,11 @@ data/
 *.db
 scratch/
 .cache/
+CHAT_HISTORY_SUMMARY.md
+*chat_history*
+*CHAT_HISTORY*
+*Implementation Plan*
+*implementation_plan*
+*.pdf
+
 
